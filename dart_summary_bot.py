@@ -103,9 +103,9 @@ def handle_incoming_scan(message):
         # Upload file to Gemini File API
         uploaded_file = client.files.upload(file=temp_path)
 
-        # Generate response using Gemini Flash
+        # Generate response using Gemini 3.8 Flash
         response = client.models.generate_content(
-            model='gemini-2.5-flash',
+            model='gemini-3.8-flash',
             contents=[uploaded_file, PROMPT_TEMPLATE]
         )
 
