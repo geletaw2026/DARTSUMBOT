@@ -38,7 +38,6 @@ os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 client = genai.Client()
 
-# Universal high-performance executive brief template for all construction documents
 EXECUTIVE_PROMPT = """
 You are an expert Senior Construction Project Manager and Contracts Consultant at Dart Engineering Trading PLC.
 Analyze the attached construction document (Letter, Notice, Claim, Tender, Report, or Memo) and extract essential facts immediately.
@@ -66,7 +65,6 @@ Structure your output exactly as follows using clean Markdown formatting:
 Keep the summary direct, actionable, and strictly under 150 words.
 """
 
-# Helper function to safely send or edit messages exceeding Telegram's 4096 character limit
 def safe_send_or_edit(chat_id, text, message_id=None, parse_mode="Markdown"):
     max_length = 4096
     if len(text) <= max_length:
@@ -89,7 +87,7 @@ def safe_send_or_edit(chat_id, text, message_id=None, parse_mode="Markdown"):
             bot.send_message(chat_id, chunk, parse_mode=parse_mode)
 
 # ---------------------------------------------------------
-# 3. TELEGRAM HANDLERS (INSTANT PROCESSING)
+# 3. TELEGRAM HANDLERS WITH BACKGROUND THREADING
 # ---------------------------------------------------------
 
 @bot.message_handler(commands=['start', 'help'])
@@ -101,33 +99,25 @@ def send_welcome(message):
     )
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
-# Handle Document & Photo Uploads -> Process Instantly without Buttons
-@bot.message_handler(content_types=['document', 'photo'])
-def handle_instant_scan(message):
-    processing_msg = bot.reply_to(message, "⏳ *Dart AI Assistant:* Reading document and generating brief...", parse_mode="Markdown")
+def process_document_background(chat_id, message_id, file_id, is_photo, ext):
     temp_path = None
-
     try:
-        if message.content_type == 'photo':
-            file_info = bot.get_file(message.photo[-1].file_id)
-            ext = ".jpg"
+        if is_photo:
+            file_info = bot.get_file(file_id)
         else:
-            file_info = bot.get_file(message.document.file_id)
-            ext = os.path.splitext(file_info.file_path)[1] or ".pdf"
+            file_info = bot.get_file(file_id)
 
         downloaded_file = bot.download_file(file_info.file_path)
-        temp_path = f"temp_scan_{message.chat.id}{ext}"
+        temp_path = f"temp_scan_{chat_id}{ext}"
         
         with open(temp_path, 'wb') as new_file:
             new_file.write(downloaded_file)
 
-        # Read file bytes directly for instant inline processing
         with open(temp_path, "rb") as f:
             file_bytes = f.read()
 
-        mime_type = "application/pdf" if temp_path.endswith(".pdf") else "image/jpeg"
+        mime_type = "application/pdf" if ext == ".pdf" else "image/jpeg"
 
-        # Generate response immediately using Gemini 3.8 Flash
         response = client.models.generate_content(
             model='gemini-3.8-flash',
             contents=[
@@ -136,11 +126,10 @@ def handle_instant_scan(message):
             ]
         )
 
-        # Safely output response handling any length limits
-        safe_send_or_edit(message.chat.id, response.text, message_id=processing_msg.message_id, parse_mode="Markdown")
+        safe_send_or_edit(chat_id, response.text, message_id=message_id, parse_mode="Markdown")
 
     except Exception as e:
-        safe_send_or_edit(message.chat.id, f"❌ Error generating brief: {str(e)}", message_id=processing_msg.message_id)
+        safe_send_or_edit(chat_id, f"❌ Error generating brief: {str(e)}", message_id=message_id)
 
     finally:
         if temp_path and os.path.exists(temp_path):
@@ -148,6 +137,27 @@ def handle_instant_scan(message):
                 os.remove(temp_path)
             except Exception:
                 pass
+
+@bot.message_handler(content_types=['document', 'photo'])
+def handle_instant_scan(message):
+    # Acknowledge instantly (< 0.1s) before downloading or processing anything
+    processing_msg = bot.reply_to(message, "⏳ *Dart AI Assistant:* Received. Generating brief...", parse_mode="Markdown")
+    
+    if message.content_type == 'photo':
+        file_id = message.photo[-1].file_id
+        is_photo = True
+        ext = ".jpg"
+    else:
+        file_id = message.document.file_id
+        is_photo = False
+        ext = os.path.splitext(message.document.file_name or ".pdf")[1] or ".pdf"
+
+    # Spin up background thread so the bot never hangs or feels delayed
+    threading.Thread(
+        target=process_document_background,
+        args=(message.chat.id, processing_msg.message_id, file_id, is_photo, ext),
+        daemon=True
+    ).start()
 
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
@@ -162,8 +172,6 @@ def handle_text(message):
 # ---------------------------------------------------------
 if __name__ == "__main__":
     print("🚀 Dart Engineering Exec Brief Bot is starting up...")
-    
-    # Give Render a moment to clear any old container connections
     time.sleep(5)
     
     try:
@@ -173,5 +181,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Note on webhook cleanup: {e}")
 
-    print("🚀 Bot is now running polling securely with instant processing...")
+    print("🚀 Bot is now running polling with background threading...")
     bot.infinity_polling(timeout=20, long_polling_timeout=10, interval=3, allowed_updates=["message"])
