@@ -133,12 +133,12 @@ def process_document_background(chat_id, message_id, file_id, is_photo, ext):
         for attempt in range(max_retries):
             try:
                 response = client.models.generate_content(
-                    model='gemini-3.8-flash',
+                    model='gemini-2.5-flash',
                     contents=[file_part, EXECUTIVE_PROMPT]
                 )
                 break
             except Exception as api_err:
-                if "503" in str(api_err) and attempt < max_retries - 1:
+                if ("503" in str(api_err) or "UNAVAILABLE" in str(api_err)) and attempt < max_retries - 1:
                     time.sleep(3 * (attempt + 1)) # Wait 3s, then 6s before retrying
                     continue
                 raise api_err
@@ -196,5 +196,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Note on webhook cleanup: {e}")
 
-    print("🚀 Bot is running polling with background threading and automatic 503 retry protection...")
+    print("🚀 Bot is running polling with background threading and gemini-2.5-flash stability...")
     bot.infinity_polling(timeout=20, long_polling_timeout=10, interval=3, allowed_updates=["message"])
