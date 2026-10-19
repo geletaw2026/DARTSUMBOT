@@ -302,5 +302,6 @@ def handle_text(message):
 # 4. MAIN EXECUTION BLOCK
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print("🚀 Dart Engineering Exec Brief Bot is running with interactive buttons & status updates...")
-    bot.infinity_polling(timeout=20, long_polling_timeout=10)
+    print("🚀 Dart Engineering Exec Brief Bot is running securely...")
+    # Added interval and retry parameters to gracefully handle startup conflicts
+    bot.infinity_polling(timeout=20, long_polling_timeout=10, interval=2, allowed_updates=["message", "callback_query"])
