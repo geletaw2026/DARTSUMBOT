@@ -142,6 +142,30 @@ Structure your output exactly as follows using clean Markdown formatting:
 Keep the brief structured and operations-focused.
 """
 
+# Template 5: General / Other Documents (Meeting Minutes, Specs, Submittals, Memos)
+GENERAL_PROMPT = """
+You are a Senior Technical Consultant at Dart Engineering Trading PLC.
+Analyze the attached miscellaneous construction document (such as Meeting Minutes, Technical Specification, Material Submittal, Drawing Transmittal, or General Memo).
+
+Structure your output exactly as follows using clean Markdown formatting:
+
+📁 **[Dart General Brief] Project: [Extract Project Name or 'General']**
+
+📄 **Doc Title & Date:** [Document Title, Reference & Date]
+📌 **Document Classification:** [Meeting Minutes / Tech Specs / Submittal / Transmittal / Other]
+
+📝 **Executive Overview:** 
+[Concise 2-sentence summary of what this document covers and its core purpose]
+
+🔍 **Key Technical & Operational Takeaways:** 
+[Highlight the most critical data points, decisions made, specifications, or approvals required]
+
+🎯 **Management Action Required:** 
+[Specify any follow-up actions, approvals, or reviews needed from leadership]
+
+Keep the briefing clear, well-structured, and executive-ready.
+"""
+
 # ---------------------------------------------------------
 # 3. TELEGRAM HANDLERS
 # ---------------------------------------------------------
@@ -151,11 +175,11 @@ def send_welcome(message):
     welcome_text = (
         "👋 **Welcome to the Dart Engineering Executive Brief Bot!**\n\n"
         "Simply send or upload any project document (**PDF or Photo**). "
-        "The bot will immediately ask you to select the document type using interactive buttons so you never have to type commands!"
+        "The bot will prompt you with interactive buttons to categorize it accurately."
     )
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
-# Handle Document & Photo Uploads -> Present Interactive Options
+# Handle Document & Photo Uploads -> Present 5 Interactive Options
 @bot.message_handler(content_types=['document', 'photo'])
 def handle_incoming_scan(message):
     processing_msg = bot.reply_to(message, "⏳ *Dart AI Assistant:* Receiving and uploading document to cloud...", parse_mode="Markdown")
@@ -182,18 +206,19 @@ def handle_incoming_scan(message):
         # Store file reference securely for this chat session
         ACTIVE_UPLOADS[message.chat.id] = uploaded_file
 
-        # Create Interactive Inline Keyboard Options
+        # Create 5 Interactive Inline Keyboard Options
         markup = InlineKeyboardMarkup()
         markup.row_width = 2
         markup.add(
             InlineKeyboardButton("📱 Letter / Notice", callback_data="type_letter"),
             InlineKeyboardButton("📋 Tender / RFP", callback_data="type_tender"),
             InlineKeyboardButton("⚖️ Claim / Variation", callback_data="type_claim"),
-            InlineKeyboardButton("📊 Progress Report", callback_data="type_report")
+            InlineKeyboardButton("📊 Progress Report", callback_data="type_report"),
+            InlineKeyboardButton("📁 General / Other", callback_data="type_other")
         )
 
         bot.edit_message_text(
-            "✅ **Document uploaded successfully!**\n\nPlease select the document type below to generate your executive briefing:",
+            "✅ **Document uploaded successfully!**\n\nPlease select the document category below:",
             chat_id=message.chat.id,
             message_id=processing_msg.message_id,
             reply_markup=markup,
@@ -204,14 +229,13 @@ def handle_incoming_scan(message):
         bot.edit_message_text(f"❌ Error uploading document: {str(e)}", chat_id=message.chat.id, message_id=processing_msg.message_id)
 
     finally:
-        # Clean up local temporary file instantly
         if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
             except Exception:
                 pass
 
-# Handle Button Clicks (Callbacks)
+# Handle Button Clicks (Callbacks) with Real-Time Progress Feedback
 @bot.callback_query_handler(func=lambda call: call.data.startswith('type_'))
 def handle_doc_type_selection(call):
     chat_id = call.message.chat.id
@@ -221,26 +245,34 @@ def handle_doc_type_selection(call):
         bot.answer_callback_query(call.id, "⚠️ Session expired or file not found. Please re-upload your document.")
         return
 
-    # Determine prompt based on button choice
     selection = call.data
     if selection == "type_tender":
         selected_prompt = TENDER_PROMPT
-        doc_label = "Tender Document Brief"
+        doc_label = "Tender Brief"
     elif selection == "type_claim":
         selected_prompt = CLAIM_PROMPT
-        doc_label = "Claim & Variation Brief"
+        doc_label = "Claim Analysis"
     elif selection == "type_report":
         selected_prompt = REPORT_PROMPT
-        doc_label = "Progress Report Brief"
+        doc_label = "Progress Summary"
+    elif selection == "type_other":
+        selected_prompt = GENERAL_PROMPT
+        doc_label = "General Brief"
     else:
         selected_prompt = LETTER_PROMPT
-        doc_label = "Executive Letter Brief"
+        doc_label = "Letter Brief"
 
-    bot.answer_callback_query(call.id, f"Generating {doc_label}...")
-    bot.edit_message_text(f"⏳ *Dart AI Assistant:* Generating {doc_label}...", chat_id=chat_id, message_id=call.message.message_id, parse_mode="Markdown")
+    bot.answer_callback_query(call.id, f"Processing {doc_label}...")
+    
+    # Provide immediate user feedback while Gemini reads pages
+    bot.edit_message_text(
+        f"🔍 *Dart AI Assistant:* Reading document pages and synthesizing {doc_label}...\n*(Larger PDFs may take 10-20 seconds)*", 
+        chat_id=chat_id, 
+        message_id=call.message.message_id, 
+        parse_mode="Markdown"
+    )
 
     try:
-        # Generate analysis using Gemini
         response = client.models.generate_content(
             model='gemini-3.8-flash',
             contents=[uploaded_file, selected_prompt]
@@ -252,7 +284,6 @@ def handle_doc_type_selection(call):
         bot.send_message(chat_id, f"❌ Error generating brief: {str(e)}")
 
     finally:
-        # Cleanup remote file from Gemini Cloud and clear cache
         try:
             client.files.delete(name=uploaded_file.name)
         except Exception:
@@ -271,5 +302,5 @@ def handle_text(message):
 # 4. MAIN EXECUTION BLOCK
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print("🚀 Dart Engineering Exec Brief Bot is running with interactive buttons...")
+    print("🚀 Dart Engineering Exec Brief Bot is running with interactive buttons & status updates...")
     bot.infinity_polling(timeout=20, long_polling_timeout=10)
