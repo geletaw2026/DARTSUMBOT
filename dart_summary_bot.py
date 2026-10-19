@@ -1,5 +1,6 @@
 import os
 import threading
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -38,7 +39,7 @@ os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 client = genai.Client()
 
-# Temporary store to hold uploaded Gemini file references per chat session
+# Temporary store to hold local file paths per chat session
 ACTIVE_UPLOADS = {}
 
 # Template 1: General Correspondence / Letters
@@ -179,12 +180,11 @@ def send_welcome(message):
     )
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
-# Handle Document & Photo Uploads -> Present 5 Interactive Options
+# Handle Document & Photo Uploads -> Save locally and present 5 Interactive Options
 @bot.message_handler(content_types=['document', 'photo'])
 def handle_incoming_scan(message):
-    processing_msg = bot.reply_to(message, "⏳ *Dart AI Assistant:* Receiving and uploading document to cloud...", parse_mode="Markdown")
+    processing_msg = bot.reply_to(message, "⏳ *Dart AI Assistant:* Receiving document...", parse_mode="Markdown")
     temp_path = None
-    uploaded_file = None
 
     try:
         if message.content_type == 'photo':
@@ -199,12 +199,9 @@ def handle_incoming_scan(message):
         
         with open(temp_path, 'wb') as new_file:
             new_file.write(downloaded_file)
-
-        # Upload file to Gemini File API immediately
-        uploaded_file = client.files.upload(file=temp_path)
         
-        # Store file reference securely for this chat session
-        ACTIVE_UPLOADS[message.chat.id] = uploaded_file
+        # Store local file path securely for this chat session
+        ACTIVE_UPLOADS[message.chat.id] = temp_path
 
         # Create 5 Interactive Inline Keyboard Options
         markup = InlineKeyboardMarkup()
@@ -218,7 +215,7 @@ def handle_incoming_scan(message):
         )
 
         bot.edit_message_text(
-            "✅ **Document uploaded successfully!**\n\nPlease select the document category below:",
+            "✅ **Document received successfully!**\n\nPlease select the document category below:",
             chat_id=message.chat.id,
             message_id=processing_msg.message_id,
             reply_markup=markup,
@@ -226,23 +223,16 @@ def handle_incoming_scan(message):
         )
 
     except Exception as e:
-        bot.edit_message_text(f"❌ Error uploading document: {str(e)}", chat_id=message.chat.id, message_id=processing_msg.message_id)
+        bot.edit_message_text(f"❌ Error receiving document: {str(e)}", chat_id=message.chat.id, message_id=processing_msg.message_id)
 
-    finally:
-        if temp_path and os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except Exception:
-                pass
-
-# Handle Button Clicks (Callbacks) with Real-Time Progress Feedback
+# Handle Button Clicks (Callbacks) with Instant Inline Processing
 @bot.callback_query_handler(func=lambda call: call.data.startswith('type_'))
 def handle_doc_type_selection(call):
     chat_id = call.message.chat.id
-    uploaded_file = ACTIVE_UPLOADS.get(chat_id)
+    temp_path = ACTIVE_UPLOADS.get(chat_id)
 
-    if not uploaded_file:
-        bot.answer_callback_query(call.id, "⚠️ Session expired or file not found. Please re-upload your document.")
+    if not temp_path or not os.path.exists(temp_path):
+        bot.answer_callback_query(call.id, "⚠️ Session expired or file not found. Please re-upload.")
         return
 
     selection = call.data
@@ -264,18 +254,26 @@ def handle_doc_type_selection(call):
 
     bot.answer_callback_query(call.id, f"Processing {doc_label}...")
     
-    # Provide immediate user feedback while Gemini reads pages
     bot.edit_message_text(
-        f"🔍 *Dart AI Assistant:* Reading document pages and synthesizing {doc_label}...\n*(Larger PDFs may take 10-20 seconds)*", 
+        f"🔍 *Dart AI Assistant:* Synthesizing {doc_label}...", 
         chat_id=chat_id, 
         message_id=call.message.message_id, 
         parse_mode="Markdown"
     )
 
     try:
+        # Read file bytes directly for instant inline processing
+        with open(temp_path, "rb") as f:
+            file_bytes = f.read()
+
+        mime_type = "application/pdf" if temp_path.endswith(".pdf") else "image/jpeg"
+
         response = client.models.generate_content(
             model='gemini-3.8-flash',
-            contents=[uploaded_file, selected_prompt]
+            contents=[
+                {"mime_type": mime_type, "data": file_bytes},
+                selected_prompt
+            ]
         )
 
         bot.send_message(chat_id, response.text, parse_mode="Markdown")
@@ -284,10 +282,11 @@ def handle_doc_type_selection(call):
         bot.send_message(chat_id, f"❌ Error generating brief: {str(e)}")
 
     finally:
-        try:
-            client.files.delete(name=uploaded_file.name)
-        except Exception:
-            pass
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
         ACTIVE_UPLOADS.pop(chat_id, None)
 
 @bot.message_handler(content_types=['text'])
@@ -304,12 +303,11 @@ def handle_text(message):
 if __name__ == "__main__":
     print("🚀 Dart Engineering Exec Brief Bot is starting up...")
     
-    # Clear any lingering Telegram sessions/webhooks to prevent 409 conflicts on restart
     try:
         bot.remove_webhook()
         print("🧹 Cleared existing Telegram webhooks/sessions.")
     except Exception as e:
         print(f"Note on webhook cleanup: {e}")
 
-    print("🚀 Bot is now running polling securely...")
+    print("🚀 Bot is now running polling securely with inline processing...")
     bot.infinity_polling(timeout=20, long_polling_timeout=10, interval=2, allowed_updates=["message", "callback_query"])
