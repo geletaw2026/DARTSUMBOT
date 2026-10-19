@@ -3,7 +3,6 @@ import threading
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from google import genai
 
 # ---------------------------------------------------------
@@ -26,7 +25,7 @@ def run_health_check_server():
 threading.Thread(target=run_health_check_server, daemon=True).start()
 
 # ---------------------------------------------------------
-# 2. CONFIGURATION & PROMPT TEMPLATES
+# 2. CONFIGURATION & INSTANT EXECUTIVE PROMPT
 # ---------------------------------------------------------
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -39,13 +38,10 @@ os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
 bot = telebot.TeleBot(TELEGRAM_BOT_TOKEN)
 client = genai.Client()
 
-# Temporary store to hold local file paths per chat session
-ACTIVE_UPLOADS = {}
-
-# Template 1: General Correspondence / Letters
-LETTER_PROMPT = """
-You are an expert Construction Project Manager at Dart Engineering Trading PLC.
-Analyze the attached construction document (Letter, Memo, or Notice) and extract essential facts.
+# Universal high-performance executive brief template for all construction documents
+EXECUTIVE_PROMPT = """
+You are an expert Senior Construction Project Manager and Contracts Consultant at Dart Engineering Trading PLC.
+Analyze the attached construction document (Letter, Notice, Claim, Tender, Report, or Memo) and extract essential facts immediately.
 
 Structure your output exactly as follows using clean Markdown formatting:
 
@@ -53,15 +49,16 @@ Structure your output exactly as follows using clean Markdown formatting:
 
 📄 **Doc Ref & Date:** [Document Reference Number & Official Date]
 👥 **Parties Involved:** [Sender] ➔ [Receiver]
+📌 **Document Classification:** [Letter / Claim / Report / Tender / Memo / Other]
 
 🔹 **Subject / Core Issue:** 
-[Concise 1-2 sentence explanation of the issue]
+[Concise 1-2 sentence explanation of the core issue or purpose]
 
 ⚠️ **Critical Path / Schedule Impact:** 
-[Identify day delays, affected activities, or critical path risk]
+[Identify day delays, affected site activities, or critical path risk]
 
 💰 **Cost / Financial Impact:** 
-[Detail variations, claims, or budget risks]
+[Detail variations, financial claims, or budget risks]
 
 🎯 **Action Needed (GM / Director):** 
 [Precise executive decision or instruction required]
@@ -69,121 +66,23 @@ Structure your output exactly as follows using clean Markdown formatting:
 Keep the summary direct, actionable, and strictly under 150 words.
 """
 
-# Template 2: Tender Documents / RFPs
-TENDER_PROMPT = """
-You are an expert Tender & Estimating Manager at Dart Engineering Trading PLC.
-Analyze the attached Tender Document, RFP, or Bidding Notice.
-
-Structure your output exactly as follows using clean Markdown formatting:
-
-📋 **[Dart Tender Brief] Project: [Extract Tender Name / Project Title]**
-
-🏢 **Client / Issuing Organization:** [Client Name]
-📅 **Key Deadlines:** [Submission Date & Time, Clarification Deadline]
-💵 **Financial & Security Terms:** [Bid Bond amount, currency, payment terms]
-
-🏗️ **Scope of Work & Scale:** 
-[Briefly describe physical works, location, or major deliverables]
-
-🛡️ **Key Eligibility & Qualification Criteria:** 
-[Required licenses, min. annual turnover, similar project experience]
-
-🎯 **Strategic Recommendation / Action:** 
-[Initial go/no-go assessment and required next steps for management]
-
-Keep the briefing professional and concise.
-"""
-
-# Template 3: Claims & Variation Orders
-CLAIM_PROMPT = """
-You are an expert Senior Contracts Manager & Claims Consultant at Dart Engineering Trading PLC.
-Analyze the attached Claim, Delay Notice, Variation Order, or Dispute Document.
-
-Structure your output exactly as follows using clean Markdown formatting:
-
-⚖️ **[Dart Claim Brief] Project: [Extract Project Name]**
-
-📄 **Ref & Date:** [Document Ref & Date] | **Claim Type:** [EOT / Cost Variation / Disruption / Penalty]
-💵 **Financial Claim Amount:** [Requested financial amount / currency]
-⏱️ **Time Claim Requested:** [Requested extension of time in calendar days]
-
-🔍 **Contractual Basis & Root Cause:** 
-[Summarize contractor's argument, employer's fault, or triggering event citing clauses if mentioned]
-
-⚠️ **Exposure & Risk Analysis:** 
-[Evaluate validity, potential liability, liquidated damages risk, and counter-arguments]
-
-🎯 **Recommended Action / Defense Strategy:** 
-[Precise steps for management: accept, reject, request particulars, or negotiate]
-
-Keep the analysis sharp, contractual, and executive-focused.
-"""
-
-# Template 4: Progress & Site Reports
-REPORT_PROMPT = """
-You are an expert Resident Engineer / Project Director at Dart Engineering Trading PLC.
-Analyze the attached Progress Report, Site Inspection Report, or Technical Evaluation.
-
-Structure your output exactly as follows using clean Markdown formatting:
-
-📊 **[Dart Report Brief] Project: [Extract Project Name]**
-
-📅 **Reporting Period / Date:** [Period covered by the report]
-📈 **Overall Physical Progress:** [Completed % vs. Planned %, Schedule Status: On Track / Delayed]
-
-🚧 **Key Accomplishments This Period:** 
-[Bullet points of major milestones or site works completed]
-
-⚠️ **Bottlenecks & Critical Site Issues:** 
-[Material shortages, equipment breakdowns, weather, design delays, cash flow]
-
-🎯 **Management Action Required:** 
-[Interventions required from General Manager or Director to keep project on track]
-
-Keep the brief structured and operations-focused.
-"""
-
-# Template 5: General / Other Documents (Meeting Minutes, Specs, Submittals, Memos)
-GENERAL_PROMPT = """
-You are a Senior Technical Consultant at Dart Engineering Trading PLC.
-Analyze the attached miscellaneous construction document (such as Meeting Minutes, Technical Specification, Material Submittal, Drawing Transmittal, or General Memo).
-
-Structure your output exactly as follows using clean Markdown formatting:
-
-📁 **[Dart General Brief] Project: [Extract Project Name or 'General']**
-
-📄 **Doc Title & Date:** [Document Title, Reference & Date]
-📌 **Document Classification:** [Meeting Minutes / Tech Specs / Submittal / Transmittal / Other]
-
-📝 **Executive Overview:** 
-[Concise 2-sentence summary of what this document covers and its core purpose]
-
-🔍 **Key Technical & Operational Takeaways:** 
-[Highlight the most critical data points, decisions made, specifications, or approvals required]
-
-🎯 **Management Action Required:** 
-[Specify any follow-up actions, approvals, or reviews needed from leadership]
-
-Keep the briefing clear, well-structured, and executive-ready.
-"""
-
 # ---------------------------------------------------------
-# 3. TELEGRAM HANDLERS
+# 3. TELEGRAM HANDLERS (INSTANT PROCESSING)
 # ---------------------------------------------------------
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     welcome_text = (
         "👋 **Welcome to the Dart Engineering Executive Brief Bot!**\n\n"
-        "Simply send or upload any project document (**PDF or Photo**). "
-        "The bot will prompt you with interactive buttons to categorize it accurately."
+        "Simply send or upload any construction document (**PDF or Photo**). "
+        "The bot will instantly analyze it and deliver your executive brief."
     )
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
-# Handle Document & Photo Uploads -> Save locally and present 5 Interactive Options
+# Handle Document & Photo Uploads -> Process Instantly without Buttons
 @bot.message_handler(content_types=['document', 'photo'])
-def handle_incoming_scan(message):
-    processing_msg = bot.reply_to(message, "⏳ *Dart AI Assistant:* Receiving document...", parse_mode="Markdown")
+def handle_instant_scan(message):
+    processing_msg = bot.reply_to(message, "⏳ *Dart AI Assistant:* Reading document and generating brief...", parse_mode="Markdown")
     temp_path = None
 
     try:
@@ -199,87 +98,36 @@ def handle_incoming_scan(message):
         
         with open(temp_path, 'wb') as new_file:
             new_file.write(downloaded_file)
-        
-        # Store local file path securely for this chat session
-        ACTIVE_UPLOADS[message.chat.id] = temp_path
 
-        # Create 5 Interactive Inline Keyboard Options
-        markup = InlineKeyboardMarkup()
-        markup.row_width = 2
-        markup.add(
-            InlineKeyboardButton("📱 Letter / Notice", callback_data="type_letter"),
-            InlineKeyboardButton("📋 Tender / RFP", callback_data="type_tender"),
-            InlineKeyboardButton("⚖️ Claim / Variation", callback_data="type_claim"),
-            InlineKeyboardButton("📊 Progress Report", callback_data="type_report"),
-            InlineKeyboardButton("📁 General / Other", callback_data="type_other")
-        )
-
-        bot.edit_message_text(
-            "✅ **Document received successfully!**\n\nPlease select the document category below:",
-            chat_id=message.chat.id,
-            message_id=processing_msg.message_id,
-            reply_markup=markup,
-            parse_mode="Markdown"
-        )
-
-    except Exception as e:
-        bot.edit_message_text(f"❌ Error receiving document: {str(e)}", chat_id=message.chat.id, message_id=processing_msg.message_id)
-
-# Handle Button Clicks (Callbacks) with Instant Inline Processing
-@bot.callback_query_handler(func=lambda call: call.data.startswith('type_'))
-def handle_doc_type_selection(call):
-    chat_id = call.message.chat.id
-    temp_path = ACTIVE_UPLOADS.get(chat_id)
-
-    if not temp_path or not os.path.exists(temp_path):
-        bot.answer_callback_query(call.id, "⚠️ Session expired or file not found. Please re-upload.")
-        return
-
-    selection = call.data
-    if selection == "type_tender":
-        selected_prompt = TENDER_PROMPT
-        doc_label = "Tender Brief"
-    elif selection == "type_claim":
-        selected_prompt = CLAIM_PROMPT
-        doc_label = "Claim Analysis"
-    elif selection == "type_report":
-        selected_prompt = REPORT_PROMPT
-        doc_label = "Progress Summary"
-    elif selection == "type_other":
-        selected_prompt = GENERAL_PROMPT
-        doc_label = "General Brief"
-    else:
-        selected_prompt = LETTER_PROMPT
-        doc_label = "Letter Brief"
-
-    bot.answer_callback_query(call.id, f"Processing {doc_label}...")
-    
-    bot.edit_message_text(
-        f"🔍 *Dart AI Assistant:* Synthesizing {doc_label}...", 
-        chat_id=chat_id, 
-        message_id=call.message.message_id, 
-        parse_mode="Markdown"
-    )
-
-    try:
         # Read file bytes directly for instant inline processing
         with open(temp_path, "rb") as f:
             file_bytes = f.read()
 
         mime_type = "application/pdf" if temp_path.endswith(".pdf") else "image/jpeg"
 
+        # Generate response immediately using Gemini 3.8 Flash
         response = client.models.generate_content(
             model='gemini-3.8-flash',
             contents=[
                 {"mime_type": mime_type, "data": file_bytes},
-                selected_prompt
+                EXECUTIVE_PROMPT
             ]
         )
 
-        bot.send_message(chat_id, response.text, parse_mode="Markdown")
+        # Edit status message to show the final executive brief
+        bot.edit_message_text(
+            response.text,
+            chat_id=message.chat.id,
+            message_id=processing_msg.message_id,
+            parse_mode="Markdown"
+        )
 
     except Exception as e:
-        bot.send_message(chat_id, f"❌ Error generating brief: {str(e)}")
+        bot.edit_message_text(
+            f"❌ Error generating brief: {str(e)}",
+            chat_id=message.chat.id,
+            message_id=processing_msg.message_id
+        )
 
     finally:
         if temp_path and os.path.exists(temp_path):
@@ -287,13 +135,12 @@ def handle_doc_type_selection(call):
                 os.remove(temp_path)
             except Exception:
                 pass
-        ACTIVE_UPLOADS.pop(chat_id, None)
 
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
     bot.reply_to(
         message, 
-        "ℹ️ *Dart AI:* Please upload or forward a document (PDF or Photo) to get started.", 
+        "ℹ️ *Dart AI:* Please upload or forward a construction document (PDF or Photo) to get an instant executive brief.", 
         parse_mode="Markdown"
     )
 
@@ -303,11 +150,15 @@ def handle_text(message):
 if __name__ == "__main__":
     print("🚀 Dart Engineering Exec Brief Bot is starting up...")
     
+    # Give Render a moment to clear any old container connections
+    time.sleep(5)
+    
     try:
         bot.remove_webhook()
-        print("🧹 Cleared existing Telegram webhooks/sessions.")
+        bot.delete_webhook(drop_pending_updates=True)
+        print("🧹 Cleared existing Telegram webhooks and pending updates.")
     except Exception as e:
         print(f"Note on webhook cleanup: {e}")
 
-    print("🚀 Bot is now running polling securely with inline processing...")
-    bot.infinity_polling(timeout=20, long_polling_timeout=10, interval=2, allowed_updates=["message", "callback_query"])
+    print("🚀 Bot is now running polling securely with instant processing...")
+    bot.infinity_polling(timeout=20, long_polling_timeout=10, interval=3, allowed_updates=["message"])
