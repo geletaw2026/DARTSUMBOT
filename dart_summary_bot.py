@@ -5,7 +5,7 @@ import telebot
 from google import genai
 
 # ---------------------------------------------------------
-# RENDER FREE TIER HEALTH CHECK SERVER
+# 1. RENDER FREE TIER HEALTH CHECK SERVER
 # ---------------------------------------------------------
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -26,7 +26,7 @@ def run_health_check_server():
 threading.Thread(target=run_health_check_server, daemon=True).start()
 
 # ---------------------------------------------------------
-# CONFIGURATION
+# 2. CONFIGURATION & VALIDATION
 # ---------------------------------------------------------
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -67,10 +67,10 @@ Keep the summary direct, actionable, and strictly under 150 words.
 """
 
 # ---------------------------------------------------------
-# HANDLERS
+# 3. TELEGRAM HANDLERS
 # ---------------------------------------------------------
 
-# 1. Handle /start and /help commands
+# Handle /start and /help commands
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     welcome_text = (
@@ -80,13 +80,15 @@ def send_welcome(message):
     )
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
-# 2. Handle Document & Photo Scans
+# Handle Document & Photo Scans with Complete Cleanup
 @bot.message_handler(content_types=['document', 'photo'])
 def handle_incoming_scan(message):
     bot.reply_to(message, "⏳ *Dart AI Assistant:* Processing scanned document... Please wait.", parse_mode="Markdown")
     temp_path = None
+    uploaded_file = None
 
     try:
+        # 1. Download file from Telegram
         if message.content_type == 'photo':
             file_info = bot.get_file(message.photo[-1].file_id)
             ext = ".jpg"
@@ -95,15 +97,15 @@ def handle_incoming_scan(message):
             ext = os.path.splitext(file_info.file_path)[1] or ".pdf"
 
         downloaded_file = bot.download_file(file_info.file_path)
-        temp_path = f"temp_scan{ext}"
+        temp_path = f"temp_scan_{message.chat.id}{ext}"
         
         with open(temp_path, 'wb') as new_file:
             new_file.write(downloaded_file)
 
-        # Upload file to Gemini File API
+        # 2. Upload to Gemini File API
         uploaded_file = client.files.upload(file=temp_path)
 
-        # Generate response using Gemini 3.8 Flash
+        # 3. Generate Analysis Brief using Gemini 3.8 Flash
         response = client.models.generate_content(
             model='gemini-3.8-flash',
             contents=[uploaded_file, PROMPT_TEMPLATE]
@@ -111,17 +113,25 @@ def handle_incoming_scan(message):
 
         bot.send_message(message.chat.id, response.text, parse_mode="Markdown")
 
-        # Cleanup remote file
-        client.files.delete(name=uploaded_file.name)
-
     except Exception as e:
         bot.reply_to(message, f"❌ Error processing document: {str(e)}")
 
     finally:
-        if temp_path and os.path.exists(temp_path):
-            os.remove(temp_path)
+        # --- CLEANUP 1: Delete file from Gemini Cloud ---
+        if uploaded_file:
+            try:
+                client.files.delete(name=uploaded_file.name)
+            except Exception as cloud_err:
+                print(f"Warning: Failed to delete remote file {uploaded_file.name}: {cloud_err}")
 
-# 3. Handle Regular Text Messages (like "hi")
+        # --- CLEANUP 2: Delete local file from Render container ---
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception as local_err:
+                print(f"Warning: Failed to delete local temp file {temp_path}: {local_err}")
+
+# Handle Regular Text Messages
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
     bot.reply_to(
@@ -130,6 +140,9 @@ def handle_text(message):
         parse_mode="Markdown"
     )
 
+# ---------------------------------------------------------
+# 4. MAIN EXECUTION BLOCK
+# ---------------------------------------------------------
 if __name__ == "__main__":
-    print("🚀 Dart Engineering Exec Brief Bot is running securely...")
-    bot.infinity_polling()
+    print("🚀 Dart Engineering Exec Brief Bot is running securely with infinity polling...")
+    bot.infinity_polling(timeout=20, long_polling_timeout=10)
