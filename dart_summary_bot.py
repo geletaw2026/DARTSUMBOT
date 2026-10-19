@@ -89,7 +89,7 @@ def safe_send_or_edit(chat_id, text, message_id=None):
             bot.send_message(chat_id, chunk)
 
 # ---------------------------------------------------------
-# 3. TELEGRAM HANDLERS WITH BACKGROUND THREADING
+# 3. TELEGRAM HANDLERS WITH BACKGROUND THREADING & RETRY LOGIC
 # ---------------------------------------------------------
 
 @bot.message_handler(commands=['start', 'help'])
@@ -122,16 +122,26 @@ def process_document_background(chat_id, message_id, file_id, is_photo, ext):
         else:
             mime_type = "image/jpeg"
 
-        # Correctly pass inline bytes using the official SDK types.Part.from_bytes helper
         file_part = types.Part.from_bytes(
             data=file_bytes,
             mime_type=mime_type,
         )
 
-        response = client.models.generate_content(
-            model='gemini-3.8-flash',
-            contents=[file_part, EXECUTIVE_PROMPT]
-        )
+        # Automatic retry loop to handle temporary 503 high-demand spikes gracefully
+        response = None
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model='gemini-3.8-flash',
+                    contents=[file_part, EXECUTIVE_PROMPT]
+                )
+                break
+            except Exception as api_err:
+                if "503" in str(api_err) and attempt < max_retries - 1:
+                    time.sleep(3 * (attempt + 1)) # Wait 3s, then 6s before retrying
+                    continue
+                raise api_err
 
         safe_send_or_edit(chat_id, response.text, message_id=message_id)
 
@@ -147,7 +157,6 @@ def process_document_background(chat_id, message_id, file_id, is_photo, ext):
 
 @bot.message_handler(content_types=['document', 'photo'])
 def handle_instant_scan(message):
-    # Acknowledge instantly (< 0.1s) before downloading or processing anything
     processing_msg = bot.reply_to(message, "Dart AI Assistant: Received document. Generating brief...")
     
     if message.content_type == 'photo':
@@ -160,7 +169,6 @@ def handle_instant_scan(message):
         doc_name = getattr(message.document, 'file_name', '.pdf') or '.pdf'
         ext = os.path.splitext(doc_name)[1] or ".pdf"
 
-    # Spin up background thread so the bot never hangs or feels delayed
     threading.Thread(
         target=process_document_background,
         args=(message.chat.id, processing_msg.message_id, file_id, is_photo, ext),
@@ -188,5 +196,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Note on webhook cleanup: {e}")
 
-    print("🚀 Bot is now running polling with background threading and updated brief header...")
+    print("🚀 Bot is running polling with background threading and automatic 503 retry protection...")
     bot.infinity_polling(timeout=20, long_polling_timeout=10, interval=3, allowed_updates=["message"])
