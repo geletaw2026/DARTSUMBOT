@@ -114,7 +114,13 @@ def process_document_background(chat_id, message_id, file_id, is_photo, ext):
         with open(temp_path, "rb") as f:
             file_bytes = f.read()
 
-        mime_type = "application/pdf" if ext == ".pdf" else "image/jpeg"
+        # Dynamically set correct MIME type based on file extension
+        if ext.lower() == ".pdf":
+            mime_type = "application/pdf"
+        elif ext.lower() in [".png", ".webp"]:
+            mime_type = f"image/{ext.lower().strip('.')}"
+        else:
+            mime_type = "image/jpeg"
 
         # Correctly pass inline bytes using the official SDK types.Part.from_bytes helper
         file_part = types.Part.from_bytes(
@@ -182,5 +188,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Note on webhook cleanup: {e}")
 
-    print("🚀 Bot is now running polling with background threading and Pydantic fix...")
+    print("🚀 Bot is now running polling with background threading and correct MIME type handling...")
     bot.infinity_polling(timeout=20, long_polling_timeout=10, interval=3, allowed_updates=["message"])
