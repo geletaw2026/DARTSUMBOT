@@ -4,6 +4,7 @@ import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import telebot
 from google import genai
+from google.genai import types
 
 # ---------------------------------------------------------
 # 1. RENDER FREE TIER HEALTH CHECK SERVER
@@ -115,12 +116,15 @@ def process_document_background(chat_id, message_id, file_id, is_photo, ext):
 
         mime_type = "application/pdf" if ext == ".pdf" else "image/jpeg"
 
+        # Correctly pass inline bytes using the official SDK types.Part.from_bytes helper
+        file_part = types.Part.from_bytes(
+            data=file_bytes,
+            mime_type=mime_type,
+        )
+
         response = client.models.generate_content(
             model='gemini-3.8-flash',
-            contents=[
-                {"mime_type": mime_type, "data": file_bytes},
-                EXECUTIVE_PROMPT
-            ]
+            contents=[file_part, EXECUTIVE_PROMPT]
         )
 
         safe_send_or_edit(chat_id, response.text, message_id=message_id)
@@ -178,5 +182,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Note on webhook cleanup: {e}")
 
-    print("🚀 Bot is now running polling with background threading and plain text protection...")
+    print("🚀 Bot is now running polling with background threading and Pydantic fix...")
     bot.infinity_polling(timeout=20, long_polling_timeout=10, interval=3, allowed_updates=["message"])
