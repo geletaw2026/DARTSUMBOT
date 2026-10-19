@@ -302,6 +302,14 @@ def handle_text(message):
 # 4. MAIN EXECUTION BLOCK
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    print("🚀 Dart Engineering Exec Brief Bot is running securely...")
-    # Added interval and retry parameters to gracefully handle startup conflicts
+    print("🚀 Dart Engineering Exec Brief Bot is starting up...")
+    
+    # Clear any lingering Telegram sessions/webhooks to prevent 409 conflicts on restart
+    try:
+        bot.remove_webhook()
+        print("🧹 Cleared existing Telegram webhooks/sessions.")
+    except Exception as e:
+        print(f"Note on webhook cleanup: {e}")
+
+    print("🚀 Bot is now running polling securely...")
     bot.infinity_polling(timeout=20, long_polling_timeout=10, interval=2, allowed_updates=["message", "callback_query"])
