@@ -45,7 +45,7 @@ Analyze the attached construction document (Letter, Notice, Claim, Tender, Repor
 
 Structure your output clearly using plain text formatting with section headers like:
 
-[Dart Exec Brief] Project: [Extract Project Name or 'General Site Notice']
+[Dart Brief] Project: [Extract Project Name or 'General Site Notice']
 
 Doc Ref & Date: [Document Reference Number & Official Date]
 Parties Involved: [Sender] -> [Receiver]
@@ -97,7 +97,7 @@ def send_welcome(message):
     welcome_text = (
         "Welcome to the Dart Engineering Executive Brief Bot!\n\n"
         "Simply send or upload any construction document (PDF or Photo). "
-        "The bot will instantly analyze it and deliver your executive brief."
+        "The bot will instantly analyze it and deliver your brief."
     )
     bot.reply_to(message, welcome_text)
 
@@ -171,7 +171,7 @@ def handle_instant_scan(message):
 def handle_text(message):
     bot.reply_to(
         message, 
-        "Dart AI: Please upload or forward a construction document (PDF or Photo) to get an instant executive brief."
+        "Dart AI: Please upload or forward a construction document (PDF or Photo) to get an instant brief."
     )
 
 # ---------------------------------------------------------
@@ -188,5 +188,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Note on webhook cleanup: {e}")
 
-    print("🚀 Bot is now running polling with background threading and correct MIME type handling...")
+    print("🚀 Bot is now running polling with background threading and updated brief header...")
     bot.infinity_polling(timeout=20, long_polling_timeout=10, interval=3, allowed_updates=["message"])
