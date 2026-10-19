@@ -42,49 +42,50 @@ EXECUTIVE_PROMPT = """
 You are an expert Senior Construction Project Manager and Contracts Consultant at Dart Engineering Trading PLC.
 Analyze the attached construction document (Letter, Notice, Claim, Tender, Report, or Memo) and extract essential facts immediately.
 
-Structure your output exactly as follows using clean Markdown formatting:
+Structure your output clearly using plain text formatting with section headers like:
 
-📱 **[Dart Exec Brief] Project: [Extract Project Name or 'General Site Notice']**
+[Dart Exec Brief] Project: [Extract Project Name or 'General Site Notice']
 
-📄 **Doc Ref & Date:** [Document Reference Number & Official Date]
-👥 **Parties Involved:** [Sender] ➔ [Receiver]
-📌 **Document Classification:** [Letter / Claim / Report / Tender / Memo / Other]
+Doc Ref & Date: [Document Reference Number & Official Date]
+Parties Involved: [Sender] -> [Receiver]
+Document Classification: [Letter / Claim / Report / Tender / Memo / Other]
 
-🔹 **Subject / Core Issue:** 
+Subject / Core Issue: 
 [Concise 1-2 sentence explanation of the core issue or purpose]
 
-⚠️ **Critical Path / Schedule Impact:** 
+Critical Path / Schedule Impact: 
 [Identify day delays, affected site activities, or critical path risk]
 
-💰 **Cost / Financial Impact:** 
+Cost / Financial Impact: 
 [Detail variations, financial claims, or budget risks]
 
-🎯 **Action Needed (GM / Director):** 
+Action Needed (GM / Director): 
 [Precise executive decision or instruction required]
 
 Keep the summary direct, actionable, and strictly under 150 words.
 """
 
-def safe_send_or_edit(chat_id, text, message_id=None, parse_mode="Markdown"):
+# Helper function to safely send or edit messages as plain text, avoiding all formatting crashes
+def safe_send_or_edit(chat_id, text, message_id=None):
     max_length = 4096
     if len(text) <= max_length:
         if message_id:
             try:
-                bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, parse_mode=parse_mode)
+                bot.edit_message_text(text, chat_id=chat_id, message_id=message_id)
                 return
             except Exception:
                 pass
-        bot.send_message(chat_id, text, parse_mode=parse_mode)
+        bot.send_message(chat_id, text)
     else:
         chunks = [text[i:i+max_length] for i in range(0, len(text), max_length)]
         for idx, chunk in enumerate(chunks):
             if idx == 0 and message_id:
                 try:
-                    bot.edit_message_text(chunk, chat_id=chat_id, message_id=message_id, parse_mode=parse_mode)
+                    bot.edit_message_text(chunk, chat_id=chat_id, message_id=message_id)
                     continue
                 except Exception:
                     pass
-            bot.send_message(chat_id, chunk, parse_mode=parse_mode)
+            bot.send_message(chat_id, chunk)
 
 # ---------------------------------------------------------
 # 3. TELEGRAM HANDLERS WITH BACKGROUND THREADING
@@ -93,20 +94,16 @@ def safe_send_or_edit(chat_id, text, message_id=None, parse_mode="Markdown"):
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     welcome_text = (
-        "👋 **Welcome to the Dart Engineering Executive Brief Bot!**\n\n"
-        "Simply send or upload any construction document (**PDF or Photo**). "
+        "Welcome to the Dart Engineering Executive Brief Bot!\n\n"
+        "Simply send or upload any construction document (PDF or Photo). "
         "The bot will instantly analyze it and deliver your executive brief."
     )
-    bot.reply_to(message, welcome_text, parse_mode="Markdown")
+    bot.reply_to(message, welcome_text)
 
 def process_document_background(chat_id, message_id, file_id, is_photo, ext):
     temp_path = None
     try:
-        if is_photo:
-            file_info = bot.get_file(file_id)
-        else:
-            file_info = bot.get_file(file_id)
-
+        file_info = bot.get_file(file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         temp_path = f"temp_scan_{chat_id}{ext}"
         
@@ -126,10 +123,10 @@ def process_document_background(chat_id, message_id, file_id, is_photo, ext):
             ]
         )
 
-        safe_send_or_edit(chat_id, response.text, message_id=message_id, parse_mode="Markdown")
+        safe_send_or_edit(chat_id, response.text, message_id=message_id)
 
     except Exception as e:
-        safe_send_or_edit(chat_id, f"❌ Error generating brief: {str(e)}", message_id=message_id)
+        safe_send_or_edit(chat_id, f"Error generating brief: {str(e)}", message_id=message_id)
 
     finally:
         if temp_path and os.path.exists(temp_path):
@@ -141,7 +138,7 @@ def process_document_background(chat_id, message_id, file_id, is_photo, ext):
 @bot.message_handler(content_types=['document', 'photo'])
 def handle_instant_scan(message):
     # Acknowledge instantly (< 0.1s) before downloading or processing anything
-    processing_msg = bot.reply_to(message, "⏳ *Dart AI Assistant:* Received. Generating brief...", parse_mode="Markdown")
+    processing_msg = bot.reply_to(message, "Dart AI Assistant: Received document. Generating brief...")
     
     if message.content_type == 'photo':
         file_id = message.photo[-1].file_id
@@ -150,7 +147,8 @@ def handle_instant_scan(message):
     else:
         file_id = message.document.file_id
         is_photo = False
-        ext = os.path.splitext(message.document.file_name or ".pdf")[1] or ".pdf"
+        doc_name = getattr(message.document, 'file_name', '.pdf') or '.pdf'
+        ext = os.path.splitext(doc_name)[1] or ".pdf"
 
     # Spin up background thread so the bot never hangs or feels delayed
     threading.Thread(
@@ -163,8 +161,7 @@ def handle_instant_scan(message):
 def handle_text(message):
     bot.reply_to(
         message, 
-        "ℹ️ *Dart AI:* Please upload or forward a construction document (PDF or Photo) to get an instant executive brief.", 
-        parse_mode="Markdown"
+        "Dart AI: Please upload or forward a construction document (PDF or Photo) to get an instant executive brief."
     )
 
 # ---------------------------------------------------------
@@ -181,5 +178,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Note on webhook cleanup: {e}")
 
-    print("🚀 Bot is now running polling with background threading...")
+    print("🚀 Bot is now running polling with background threading and plain text protection...")
     bot.infinity_polling(timeout=20, long_polling_timeout=10, interval=3, allowed_updates=["message"])
