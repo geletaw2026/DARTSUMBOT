@@ -66,6 +66,28 @@ Structure your output exactly as follows using clean Markdown formatting:
 Keep the summary direct, actionable, and strictly under 150 words.
 """
 
+# Helper function to safely send or edit messages exceeding Telegram's 4096 character limit
+def safe_send_or_edit(chat_id, text, message_id=None, parse_mode="Markdown"):
+    max_length = 4096
+    if len(text) <= max_length:
+        if message_id:
+            try:
+                bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, parse_mode=parse_mode)
+                return
+            except Exception:
+                pass
+        bot.send_message(chat_id, text, parse_mode=parse_mode)
+    else:
+        chunks = [text[i:i+max_length] for i in range(0, len(text), max_length)]
+        for idx, chunk in enumerate(chunks):
+            if idx == 0 and message_id:
+                try:
+                    bot.edit_message_text(chunk, chat_id=chat_id, message_id=message_id, parse_mode=parse_mode)
+                    continue
+                except Exception:
+                    pass
+            bot.send_message(chat_id, chunk, parse_mode=parse_mode)
+
 # ---------------------------------------------------------
 # 3. TELEGRAM HANDLERS (INSTANT PROCESSING)
 # ---------------------------------------------------------
@@ -114,20 +136,11 @@ def handle_instant_scan(message):
             ]
         )
 
-        # Edit status message to show the final executive brief
-        bot.edit_message_text(
-            response.text,
-            chat_id=message.chat.id,
-            message_id=processing_msg.message_id,
-            parse_mode="Markdown"
-        )
+        # Safely output response handling any length limits
+        safe_send_or_edit(message.chat.id, response.text, message_id=processing_msg.message_id, parse_mode="Markdown")
 
     except Exception as e:
-        bot.edit_message_text(
-            f"❌ Error generating brief: {str(e)}",
-            chat_id=message.chat.id,
-            message_id=processing_msg.message_id
-        )
+        safe_send_or_edit(message.chat.id, f"❌ Error generating brief: {str(e)}", message_id=processing_msg.message_id)
 
     finally:
         if temp_path and os.path.exists(temp_path):
